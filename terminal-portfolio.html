@@ -1,0 +1,1191 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terminal Portfolio</title>
+    <style>
+        :root {
+            --primary-color: #00ff00;
+            --background-color: #000;
+            --border-color: #00ff00;
+            --info-color: #ffff00;
+            --error-color: #ff4444;
+            --success-color: #00ff00;
+            --link-color: #0088ff;
+            --sound-toggle-bg: #000;
+            --sound-toggle-border: #00ff00;
+            --sound-toggle-color: #00ff00;
+            --sound-toggle-hover: #00ff00;
+            --matrix-color: #00ff00;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background-color: var(--background-color); color: var(--primary-color); font-family: 'Courier New', monospace; height: 100vh; overflow: hidden; padding: 20px; }
+
+        .terminal { background-color: var(--background-color); border: 1px solid var(--border-color); border-radius: 5px; height: calc(100vh - 40px); padding: 20px; overflow-y: auto; position: relative; z-index: 100; }
+        .output { margin-bottom: 20px; line-height: 1.4; }
+        .line { margin-bottom: 5px; }
+        .prompt { color: var(--primary-color); margin-right: 10px; }
+        .input-container { display: flex; align-items: center; }
+
+        .input { background: transparent; border: none; color: var(--primary-color); font-family: inherit; font-size: inherit; outline: none; flex: 1; }
+        .cursor { display: inline-block; width: 10px; height: 1.2em; background-color: var(--primary-color); animation: blink 1s infinite; margin-left: 2px; }
+
+        @keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
+        .command-output { margin-bottom: 15px; }
+        .error { color: var(--error-color); }
+        .success { color: var(--success-color); }
+        .info { color: var(--info-color); }
+        .link { color: var(--link-color); text-decoration: underline; }
+
+        .matrix-rain { position: fixed; top: 20px; left: 20px; width: calc(100% - 40px); height: calc(100vh - 60px); pointer-events: none; z-index: 150; overflow: hidden; border-radius: 5px; }
+        .matrix-column { position: absolute; top: -100px; font-size: 14px; line-height: 1.2; color: var(--matrix-color); opacity: 0.8; animation: matrixFall linear infinite; }
+        .matrix-column:nth-child(odd) { color: #00cc00; opacity: 0.6; }
+        .matrix-column:nth-child(3n) { color: #009900; opacity: 0.4; }
+        @keyframes matrixFall { 0% { transform: translateY(-100px); opacity: 1; } 100% { transform: translateY(100vh); opacity: 0; } }
+
+        .progress-bar { width: 200px; height: 10px; background-color: #333; border: 1px solid var(--border-color); margin: 10px 0; overflow: hidden; }
+        .progress-fill { height: 100%; background-color: var(--primary-color); width: 0%; transition: width 0.3s ease; }
+
+        .sound-toggle { position: fixed; top: 20px; right: 20px; background: var(--sound-toggle-bg); border: 2px solid var(--sound-toggle-border); color: var(--sound-toggle-color); padding: 8px 12px; cursor: pointer; font-family: inherit; font-size: 12px; z-index: 1000; border-radius: 5px; box-shadow: 0 0 10px var(--sound-toggle-border); }
+        .sound-toggle:hover { background-color: var(--sound-toggle-hover); color: var(--sound-toggle-bg); }
+    </style>
+</head>
+<body>
+
+    <!-- Matrix Rain Effect -->
+    <div class="matrix-rain" id="matrixRain"></div>
+
+    <!-- Sound Toggle Button -->
+    <button class="sound-toggle" id="soundToggle">🔊 SES</button>
+
+    <div class="terminal" id="terminal">
+        <div class="output" id="output">
+
+            <div class="line">
+                <span class="prompt">user@terminal:~$</span>
+                <span class="typing-animation">Sistem başlatılıyor...</span>
+            </div>
+        </div>
+        <div class="input-container">
+            <span class="prompt">user@terminal:~$</span>
+            <input type="text" class="input" id="commandInput" autocomplete="off">
+            <span class="cursor" id="cursor"></span>
+        </div>
+    </div>
+
+    <script>
+        const terminal = document.getElementById('terminal');
+        const output = document.getElementById('output');
+        const commandInput = document.getElementById('commandInput');
+        const cursor = document.getElementById('cursor');
+        const soundToggle = document.getElementById('soundToggle');
+
+        let isTyping = false, currentDirectory = '/home/user', commandHistory = [], historyIndex = -1, soundEnabled = true, matrixColumns = [];
+
+        function initMatrixRain() {
+            const matrixRain = document.getElementById('matrixRain');
+            if (!matrixRain) return;
+
+            const characters = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+            const columnCount = Math.floor(window.innerWidth / 14);
+
+            for (let i = 0; i < columnCount; i++) {
+                const column = document.createElement('div');
+                column.className = 'matrix-column';
+                column.style.left = `${i * 14}px`;
+                column.style.animationDuration = `${Math.random() * 2 + 1}s`;
+                column.style.animationDelay = `${Math.random() * 2}s`;
+
+                let columnText = '';
+                for (let j = 0; j < Math.floor(Math.random() * 20 + 10); j++) {
+                    columnText += characters[Math.floor(Math.random() * characters.length)] + '\n';
+                }
+                column.textContent = columnText;
+
+                matrixRain.appendChild(column);
+                matrixColumns.push(column);
+            }
+        }
+
+        let audioContext = null;
+        function initAudio() {
+            try {
+                if (!audioContext) {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                if (audioContext.state === 'suspended') {
+                    audioContext.resume();
+                }
+            } catch(e) {
+                console.warn('Audio initialization failed:', e);
+            }
+        }
+
+        function playSound(type) {
+            if (!soundEnabled) return;
+
+            try {
+                if (!audioContext) {
+                    initAudio();
+                }
+
+                if (!audioContext) return;
+
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+
+                switch(type) {
+                    case 'keypress':
+                        oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+                        oscillator.frequency.exponentialRampToValueAtTime(400, audioContext.currentTime + 0.1);
+                        gainNode.gain.setValueAtTime(0.05, audioContext.currentTime);
+                        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+                        oscillator.start();
+                        oscillator.stop(audioContext.currentTime + 0.1);
+                        break;
+                    case 'enter':
+                        oscillator.frequency.setValueAtTime(600, audioContext.currentTime);
+                        oscillator.frequency.exponentialRampToValueAtTime(800, audioContext.currentTime + 0.2);
+                        gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+                        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+                        oscillator.start();
+                        oscillator.stop(audioContext.currentTime + 0.2);
+                        break;
+                    case 'error':
+                        oscillator.frequency.setValueAtTime(200, audioContext.currentTime);
+                        oscillator.frequency.exponentialRampToValueAtTime(150, audioContext.currentTime + 0.3);
+                        gainNode.gain.setValueAtTime(0.15, audioContext.currentTime);
+                        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+                        oscillator.start();
+                        oscillator.stop(audioContext.currentTime + 0.3);
+                        break;
+                }
+            } catch(e) {
+                console.warn('Sound playback failed:', e);
+            }
+        }
+
+        function createColorCodedHTML(text) {
+            return parseColorCodes(text);
+        }
+
+        function createTypingSteps(text) {
+            const steps = [];
+            const chars = text.split('');
+
+            for (let i = 0; i < chars.length; i++) {
+                steps.push(createColorCodedHTML(text.substring(0, i + 1)));
+            }
+
+            return steps;
+        }
+
+        function typeText(text, callback, speed = 25, className = 'command-output') {
+            isTyping = true;
+            const line = document.createElement('div');
+            line.className = `line ${className}`;
+
+            if (!text || typeof text !== 'string') {
+                console.warn('typeText: Invalid text parameter:', text);
+                isTyping = false;
+                if (callback) callback();
+                return;
+            }
+
+            output.appendChild(line);
+
+            const hasColorCodes = /\[color=|\[b\]|\[i\]|\[\/color\]|\[\/b\]|\[\/i\]/.test(text);
+
+            if (!hasColorCodes) {
+                let index = 0;
+                const typeInterval = setInterval(() => {
+                    if (index < text.length) {
+                        line.textContent = text.substring(0, index + 1);
+                        index++;
+                        if (index % 3 === 0) {
+                            try {
+                                playSound('keypress');
+                            } catch(e) {
+                            }
+                        }
+                    } else {
+                        clearInterval(typeInterval);
+                        isTyping = false;
+                        if (callback) callback();
+                    }
+                }, speed);
+            } else {
+                const typingSteps = createTypingSteps(text);
+                let stepIndex = 0;
+
+                const typeInterval = setInterval(() => {
+                    if (stepIndex < typingSteps.length) {
+                        line.innerHTML = typingSteps[stepIndex];
+                        stepIndex++;
+                        if (stepIndex % 3 === 0) {
+                            try {
+                                playSound('keypress');
+                            } catch(e) {
+                            }
+                        }
+                    } else {
+                        clearInterval(typeInterval);
+                        isTyping = false;
+                        if (callback) callback();
+                    }
+                }, speed);
+            }
+        }
+
+        function addOutput(text, className = '') {
+            const line = document.createElement('div');
+            line.className = `line ${className}`;
+
+            if (text.includes('[color=') || text.includes('[b]') || text.includes('[i]')) {
+                line.innerHTML = parseColorCodes(text);
+            } else {
+                line.textContent = text;
+            }
+
+            output.appendChild(line);
+            output.scrollTop = output.scrollHeight;
+        }
+        function parseColorCodes(text) {
+            if (!text || typeof text !== 'string') return text;
+
+            let result = text;
+
+            result = result.replace(/\[color=([^\]]+)\]([\s\S]*?)\[\/color\]/g, '<span style="color: $1">$2</span>');
+            result = result.replace(/\[b\]([\s\S]*?)\[\/b\]/g, '<span style="font-weight: bold">$1</span>');
+            result = result.replace(/\[i\]([\s\S]*?)\[\/i\]/g, '<span style="font-style: italic">$1</span>');
+            result = result.replace(/\[\/?color[^\]]*\]/g, '');
+            result = result.replace(/\[\/?b\]/g, '');
+            result = result.replace(/\[\/?i\]/g, '');
+
+            return result;
+        }
+        let fileSystem = {
+            '/home/user': {
+                type: 'directory',
+                contents: {
+                    'documents': {
+                        type: 'directory',
+                        contents: {
+                            'cv.txt': {
+                                type: 'file',
+                                content: 'ATA GÜRSEL - Software Engineer\n' +
+                                        '==============================\n\n' +
+                                        'PROFESYONEL ÖZET:\n' +
+                                        'Full-Stack Developer with expertise in AI/ML, Web Development, and Security\n' +
+                                        'Building elegant solutions for complex problems with cutting-edge technology\n\n' +
+                                        'İLETİŞİM:\n' +
+                                        '📧 Email: atagursel@example.com\n' +
+                                        '💼 LinkedIn: https://www.linkedin.com/in/atagursel/\n' +
+                                        '🐙 GitHub: https://github.com/ATAGRSL\n\n' +
+                                        'TEKNOLOJI STACK:\n' +
+                                        'Programming Languages: Python, JavaScript, TypeScript, Java, C#, C, PHP, SQL\n' +
+                                        'Frontend: React, Vue.js, Angular, HTML5, CSS3, SASS, Redux, TailwindCSS\n' +
+                                        'Backend: Node.js, Express.js, Django, Flask, Spring Boot, ASP.NET Core\n' +
+                                        'AI/ML: TensorFlow, PyTorch, Scikit-Learn, Pandas, NumPy, Matlab\n' +
+                                        'Databases: PostgreSQL, MySQL, MongoDB, Redis\n' +
+                                        'DevOps/Cloud: Docker, Kubernetes, AWS, GCP, Azure, Git, CI/CD\n\n' +
+                                        'DENEYIM:\n' +
+                                        '• 5+ yıl yazılım geliştirme deneyimi\n' +
+                                        '• AI/ML projeleri geliştirme ve deployment\n' +
+                                        '• Full-stack web uygulamaları geliştirme\n' +
+                                        '• Güvenlik sistemleri ve kriptografi projeleri\n' +
+                                        '• Veritabanı tasarımı ve optimizasyonu\n\n' +
+                                        'EĞITIM:\n' +
+                                        '• Bilgisayar Mühendisliği / Yazılım Mühendisliği\n' +
+                                        '• Yapay Zeka ve Makine Öğrenmesi Sertifikaları\n' +
+                                        '• Cloud Computing ve DevOps Eğitimleri\n' +
+                                        '• Güvenlik ve Kriptografi Kursları\n\n' +
+                                        'PROJELER:\n' +
+                                        '• ATAGPT - NLP Sohbet Botu\n' +
+                                        '• Random Forest Image Classification\n' +
+                                        '• Library Database Management System\n' +
+                                        '• Cryptography & Network Security Projects\n' +
+                                        '• Data Mining & Analytics Applications'
+                            },
+                            'about.txt': {
+                                type: 'file',
+                                content: '╔══════════════════════════════════════════════════════════════════╗\n' +
+                                        '║                      ATA GÜRSEL - Developer                     ║\n' +
+                                        '╚══════════════════════════════════════════════════════════════════╝\n\n' +
+                                        'Merhaba! Ben Ata Gürsel, karmaşık problemleri zarif çözümlere dönüştürmekten\n' +
+                                        'büyük keyif alan bir Software Engineer\'ım.\n\n' +
+                                        '🎯 MOTIVASYON:\n' +
+                                        'Kavramdan koda uzanan yolculuk ve teknoloji ile anlamlı problemleri çözmek.\n\n' +
+                                        '🛠️  ODAKLANDIĞIM ALANLAR:\n' +
+                                        '- Artificial Intelligence & Machine Learning\n' +
+                                        '- Full-Stack Web Development\n' +
+                                        '- Network Security & Cryptography\n' +
+                                        '- Data Mining & Analytics\n\n' +
+                                        '💡 FELSEFEM:\n' +
+                                        'Teknoloji sadece fonksiyonel değil, aynı zamanda etkili olmalıdır.\n' +
+                                        'Temiz, verimli ve ölçeklenebilir kod yazmaya odaklanırım.\n\n' +
+                                        '🤝 İŞ BİRLİĞİ:\n' +
+                                        'Sürekli öğrenme üzerine kurulu, iş birlikçi ve yenilikçi ortamlarda\n' +
+                                        'çalışmaktan keyif alırım.\n\n' +
+                                        '🌐 BAĞLANTILAR:\n' +
+                                        '• LinkedIn: https://www.linkedin.com/in/atagursel/\n' +
+                                        '• GitHub: https://github.com/ATAGRSL\n' +
+                                        '• Email: atagursel@example.com'
+                            }
+                        }
+                    },
+                    'projects': {
+                        type: 'directory',
+                        contents: {
+                            'portfolio.html': {
+                                type: 'file',
+                                content: '<!DOCTYPE html>\n<html>\n<head>\n    <title>Terminal Portfolio</title>\n</head>\n<body>\n    <h1>Harika bir portfolyo sitesi!</h1>\n</body>\n</html>'
+                            },
+                            'game.js': {
+                                type: 'file',
+                                content: '// Basit bir oyun dosyası\nconsole.log("Oyun başlatılıyor...");\n\nfunction startGame() {\n    console.log("Oyun başladı!");\n}'
+                            }
+                        }
+                    },
+                    'downloads': { type: 'directory', contents: {} },
+                    'readme.md': {
+                        type: 'file',
+                        content: '# Terminal Portfolio - Ata Gürsel\n\n' +
+                                'Gelişmiş terminal temalı portfolyo sitesi.\n\n' +
+                                '## Hakkımda\n' +
+                                'Full-Stack Developer | AI/ML Engineer | Security Enthusiast\n' +
+                                'Building elegant solutions for complex problems with AI & Full Stack Development\n\n' +
+                                '## İletişim\n' +
+                                '- **LinkedIn:** https://www.linkedin.com/in/atagursel/\n' +
+                                '- **GitHub:** https://github.com/ATAGRSL\n' +
+                                '- **Email:** atagursel@example.com\n\n' +
+                                '## Teknoloji Stack\n' +
+                                '- **Programming Languages:** Python, JavaScript, TypeScript, Java, C#, C, PHP, SQL\n' +
+                                '- **Frontend:** React, Vue.js, Angular, HTML5, CSS3, SASS, Redux, TailwindCSS\n' +
+                                '- **Backend:** Node.js, Express.js, Django, Flask, Spring Boot, ASP.NET Core\n' +
+                                '- **AI/ML:** TensorFlow, PyTorch, Scikit-Learn, Pandas, NumPy, Matlab\n' +
+                                '- **Databases:** PostgreSQL, MySQL, MongoDB, Redis\n' +
+                                '- **DevOps/Cloud:** Docker, Kubernetes, AWS, GCP, Azure, Git, CI/CD\n' +
+                                '- **Architecture:** RESTful APIs, GraphQL, Microservices, Agile, Full-Stack\n\n' +
+                                '## Projeler\n' +
+                                '1. **ATAGPT** - NLP Chat Bot (JavaScript, NLP)\n' +
+                                '   - Doğal dil işleme teknikleri ile geliştirilmiş sohbet botu\n' +
+                                '   - GitHub: https://github.com/ATAGRSL/ATAGPT\n\n' +
+                                '2. **Random Forest Image Classification** - AI/ML Project (Python, Jupyter)\n' +
+                                '   - Makine öğrenmesi ile resim sınıflandırma\n' +
+                                '   - GitHub: https://github.com/ATAGRSL/Random-Forest-Image-Classification\n\n' +
+                                '3. **Library Database Project** - C# Database System (.NET, C#)\n' +
+                                '   - Kütüphane yönetimi veritabanı uygulaması\n' +
+                                '   - GitHub: https://github.com/ATAGRSL/Library-Database-Project\n\n' +
+                                '4. **Cryptography & Network Security** - Security Project (Python)\n' +
+                                '   - Ağ güvenliği ve şifreleme üzerine geliştirme\n' +
+                                '   - GitHub: https://github.com/ATAGRSL/Cryptography-and-Network-Security-FINAL\n\n' +
+                                '5. **Data Mining Final Project** - Computer Vision (Python)\n' +
+                                '   - Hareketli video analizi ve kişi sayma algoritması\n' +
+                                '   - GitHub: https://github.com/ATAGRSL/Data-Mining-FINAL-PROJECT\n\n' +
+                                '6. **Microsoft Stock Prediction** - AI Analytics (Python, Jupyter)\n' +
+                                '   - Makine öğrenmesi ile hisse senedi tahmini\n' +
+                                '   - GitHub: https://github.com/ATAGRSL/Data-Mining-MIDTERM-PROJECT\n\n' +
+                                '## Terminal Portfolyo Özellikleri\n' +
+                                '- 🎭 İnteraktif terminal simülasyonu\n' +
+                                '- 🌧️ Matrix rain efekti (arkaplanda)\n' +
+                                '- 🎨 ASCII art banner\n' +
+                                '- 📁 Gerçekçi dosya sistemi simülasyonu\n' +
+                                '- 🐧 Linux komutları (ls, cd, pwd, cat, mkdir, rm)\n' +
+                                '- 🔊 Retro terminal ses efektleri\n' +
+                                '- ⬆️⬇️ Komut geçmişi (ok tuşları ile)\n' +
+                                '- ↹ Tab tamamlama özelliği\n' +
+
+                                '- 📊 Progress bar animasyonları\n' +
+                                '- 🎨 Renk kodlaması sistemi\n\n' +
+                                '## Kullanım\n' +
+                                'Terminal komutlarını yazarak portfolyoyu keşfedin:\n' +
+                                '```bash\n' +
+                                'hakkimda      # Kişisel tanıtım\n' +
+                                'projelerim    # GitHub projeleri\n' +
+                                'iletisim      # İletişim bilgileri\n' +
+                                'ls           # Dosyaları listele\n' +
+                                'cd documents # Dizini değiştir\n' +
+                                'cat cv.txt   # Dosya içeriği\n' +
+                                'help         # Tüm komutlar\n' +
+                                '```\n\n' +
+                                '## GitHub\n' +
+                                'https://github.com/ATAGRSL'
+                    }
+                }
+            }
+        };
+
+        function getCurrentDirectory() {
+            return fileSystem[currentDirectory];
+        }
+
+        function resolvePath(path) {
+            if (path.startsWith('/')) {
+                return path;
+            } else if (path === '..') {
+                const parts = currentDirectory.split('/').filter(p => p);
+                parts.pop();
+                return '/' + parts.join('/');
+            } else if (path === '.') {
+                return currentDirectory;
+            } else {
+                return currentDirectory + (currentDirectory.endsWith('/') ? '' : '/') + path;
+            }
+        }
+
+        const commands = { 'hakkimda': () => [
+                '[color=#00ff00]╔══════════════════════════════════════════════════════════════════╗[/color]',
+                '[color=#00ff00]║                          HAKKIMDA                              ║[/color]',
+                '[color=#00ff00]╚══════════════════════════════════════════════════════════════════╝[/color]',
+                '',
+                '[color=#ffff00]Software Engineer | Building Elegant Solutions for Complex Problems[/color]',
+                '[color=#00ff00]with AI & Full Stack Development[/color]',
+                '',
+                '[color=#ffff00]👋 Merhaba! Ben Ata Gürsel[/color]',
+                'Karmaşık problemleri zarif çözümlere dönüştürmekten büyük keyif alıyorum.',
+                'Full-Stack Developer olarak, güçlü backend sistemleri ve sezgisel kullanıcı arayüzleri geliştiriyorum.',
+                '',
+                '[color=#0088ff]🎯 Motivasyonum:[/color]',
+                'Kavramdan koda uzanan yolculuk ve teknoloji ile anlamlı problemleri çözmek.',
+                '',
+                '[color=#00ff00]🛠️  Teknoloji Stack\'im:[/color]',
+                '',
+                '[color=#ffff00]Programlama Dilleri:[/color]',
+                '[color=#ffffff]• Python, JavaScript, TypeScript, Java, C#, C, PHP, SQL[/color]',
+                '',
+                '[color=#0088ff]Frontend:[/color]',
+                '[color=#ffffff]• React, Vue.js, Angular, HTML5, CSS3, SASS, Redux, TailwindCSS[/color]',
+                '',
+                '[color=#00ff00]Backend:[/color]',
+                '[color=#ffffff]• Node.js, Express.js, Django, Flask, Spring Boot, ASP.NET Core[/color]',
+                '',
+                '[color=#ffff00]Veritabanları:[/color]',
+                '[color=#ffffff]• PostgreSQL, MySQL, MongoDB, Redis[/color]',
+                '',
+                '[color=#0088ff]AI/ML:[/color]',
+                '[color=#ffffff]• TensorFlow, PyTorch, Scikit-Learn, Pandas, NumPy, Matlab[/color]',
+                '',
+                '[color=#00ff00]DevOps/Cloud:[/color]',
+                '[color=#ffffff]• Docker, Kubernetes, AWS, GCP, Azure, Git, CI/CD[/color]',
+                '',
+                '[color=#ffff00]💡  İlgi Alanlarım:[/color]',
+                '[color=#ffffff]• Yapay Zeka ile anlamlı problemler çözmek[/color]',
+                '[color=#ffffff]• Temiz, verimli ve ölçeklenebilir kod yazmak[/color]',
+                '[color=#ffffff]• Sürekli öğrenme ve teknoloji inovasyonları[/color]',
+                '[color=#ffffff]• Açık kaynak projeler[/color]',
+                '',
+                '[color=#0088ff]🤝  Bağlantı:[/color]',
+                '[color=#ffffff]İş birlikçi ve yenilikçi ortamlarda çalışmaktan keyif alırım.[/color]',
+                '[color=#ffffff]Fellow profesyoneller ve düşünce liderleriyle bağlantı kurmaya her zaman açığım.[/color]',
+                '',
+                '[color=#00ff00]📧  İletişim:[/color]',
+                '[color=#ffffff]Teknoloji tutkusu paylaşanlarla bağlantı kurmaktan memnuniyet duyarım.[/color]',
+                '',
+                '[color=#ffff00]Bu terminal portfolyo sitemi beğendiniz mi? 🚀[/color]'
+            ],
+
+            'projelerim': () => [
+                '[color=#00ff00]╔══════════════════════════════════════════════════════════════════╗[/color]',
+                '[color=#00ff00]║                          PROJELERIM                            ║[/color]',
+                '[color=#00ff00]╚══════════════════════════════════════════════════════════════════╝[/color]',
+                '',
+                '[color=#ffff00]🤖 ATAGPT - NLP Sohbet Botu[/color]',
+                '[color=#ffffff]   • Doğal dil işleme (NLP) teknikleri ile geliştirilmiş[/color]',
+                '[color=#ffffff]   • JavaScript tabanlı yapay zeka sohbet uygulaması[/color]',
+                '[color=#ffffff]   • Kullanıcılarla doğal dilde etkileşim[/color]',
+                '[color=#ffffff]   • GitHub: https://github.com/ATAGRSL/ATAGPT[/color]',
+                '',
+                '[color=#0088ff]🖼️ Random Forest Image Classification[/color]',
+                '[color=#ffffff]   • Yapay Zeka ve Makine Öğrenmesi tabanlı resim sınıflandırma[/color]',
+                '[color=#ffffff]   • Jupyter Notebook ile geliştirildi[/color]',
+                '[color=#ffffff]   • Random Forest algoritması kullanılarak[/color]',
+                '[color=#ffffff]   • GitHub: https://github.com/ATAGRSL/Random-Forest-Image-Classification[/color]',
+                '',
+                '[color=#00ff00]📚 Library Database Project[/color]',
+                '[color=#ffffff]   • C# ile geliştirilmiş kütüphane veritabanı sistemi[/color]',
+                '[color=#ffffff]   • Veritabanı yönetimi ve kitap takibi[/color]',
+                '[color=#ffffff]   • .NET teknolojileri ile oluşturuldu[/color]',
+                '[color=#ffffff]   • GitHub: https://github.com/ATAGRSL/Library-Database-Project[/color]',
+                '',
+                '[color=#ffff00]🔐 Cryptography & Network Security Project[/color]',
+                '[color=#ffffff]   • Ağ güvenliği ve şifreleme üzerine geliştirilmiş[/color]',
+                '[color=#ffffff]   • Remote Access Trojan uygulaması[/color]',
+                '[color=#ffffff]   • Python tabanlı güvenlik sistemi[/color]',
+                '[color=#ffffff]   • GitHub: https://github.com/ATAGRSL/Cryptography-and-Network-Security-FINAL[/color]',
+                '',
+                '[color=#0088ff]👥 Data Mining - Kişi Sayma Algoritması[/color]',
+                '[color=#ffffff]   • Hareketli video analizi ve kodlama[/color]',
+                '[color=#ffffff]   • Python ile geliştirilmiş kişi sayma sistemi[/color]',
+                '[color=#ffffff]   • Makine öğrenmesi tabanlı görüntü işleme[/color]',
+                '[color=#ffffff]   • GitHub: https://github.com/ATAGRSL/Data-Mining-FINAL-PROJECT[/color]',
+                '',
+                '[color=#00ff00]📈 Microsoft Hisse Tahmini[/color]',
+                '[color=#ffffff]   • Yapay Zeka ile hisse senedi tahmini[/color]',
+                '[color=#ffffff]   • Jupyter Notebook tabanlı analiz[/color]',
+                '[color=#ffffff]   • Makine öğrenmesi algoritmaları[/color]',
+                '[color=#ffffff]   • GitHub: https://github.com/ATAGRSL/Data-Mining-MIDTERM-PROJECT[/color]',
+                '',
+                '[color=#ffff00]💻 Terminal Portfolio[/color]',
+                '[color=#ffffff]   • Bu site! İnteraktif terminal portfolyo[/color]',
+                '[color=#ffffff]   • HTML, CSS ve JavaScript ile geliştirildi[/color]',
+                '[color=#ffffff]   • Matrix efekti ve ASCII art[/color]',
+                '[color=#ffffff]   • Dosya sistemi simülasyonu[/color]'
+            ],
+
+            'iletisim': () => [
+                '[color=#00ff00]╔══════════════════════════════════════════════════════════════════╗[/color]',
+                '[color=#00ff00]║                          İLETİŞİM                             ║[/color]',
+                '[color=#00ff00]╚══════════════════════════════════════════════════════════════════╝[/color]',
+                '',
+                '[color=#0088ff]🐙 GitHub:[/color] https://github.com/ATAGRSL',
+                '[color=#0077b5]💼 LinkedIn:[/color] https://www.linkedin.com/in/atagursel/',
+                '',
+                '[color=#ffff00]🔗 İş birlikleri için bağlantı kurmaktan memnuniyet duyarım.[/color]'
+            ],
+
+            'yardim': () => [
+                '[color=#00ff00]╔══════════════════════════════════════════════════════════════════╗[/color]',
+                '[color=#00ff00]║                          KOMUTLAR                             ║[/color]',
+                '[color=#00ff00]╚══════════════════════════════════════════════════════════════════╝[/color]',
+                '',
+                '[color=#ffff00]📁 Dosya Sistemi:[/color]',
+                '• [b]ls[/b]           - Dizindeki dosyaları listele',
+                '• [b]cd [dizin][/b]   - Dizini değiştir',
+                '• [b]pwd[/b]          - Mevcut dizini göster',
+                '• [b]cat [dosya][/b]  - Dosya içeriğini göster',
+                '• [b]mkdir [dizin][/b] - Yeni dizin oluştur',
+                '• [b]rm [dosya][/b]   - Dosya/dizin sil',
+                '',
+                '[color=#0088ff]👤 Portfolyo:[/color]',
+                '• [b]hakkimda[/b]     - Kişisel tanıtım',
+                '• [b]projelerim[/b]   - Proje listesi',
+                '• [b]iletisim[/b]     - İletişim bilgileri',
+                '',
+                '[color=#ffff00]🔧 Sistem:[/color]',
+                '• [b]clear[/b]        - Terminali temizle',
+                '• [b]history[/b]      - Komut geçmişini göster',
+                '• [b]help[/b]         - Bu yardım menüsü',
+                '• [b]date[/b]         - Tarih ve saati göster',
+                '• [b]whoami[/b]       - Kullanıcı adını göster',
+                '• [b]download[/b]     - Dosya indirme simülasyonu',
+                '• [b]matrix[/b]       - Matrix efekti aç/kapa',
+
+                '[color=#00ff00]🛠️  Araçlar:[/color]',
+                '• [b]calc[/b]         - Hesap makinesi',
+                '• [b]weather[/b]      - Hava durumu',
+                '• [b]joke[/b]         - Programcı şakası',
+                '• [b]fortune[/b]      - Günlük şans',
+                '• [b]theme[/b]        - Tema değiştirici',
+                '• [b]neofetch[/b]     - Sistem bilgilerini göster',
+                '',
+                '[color=#0088ff]Kullanım:[/color] Komut yazıp Enter\'a basın',
+                '[color=#0088ff]Tab:[/color] Komut tamamlama'
+            ],
+
+            'clear': () => {
+                setTimeout(() => {
+                    output.innerHTML = '';
+                    addOutput('[color=#00ff00]Terminal temizlendi. Yeni bir komut yazabilirsiniz.[/color]', 'success');
+                }, 100);
+                return [];
+            },
+
+            'ls': (args) => {
+                const dir = getCurrentDirectory();
+                if (!dir || dir.type !== 'directory') {
+                    return ['[color=#ff4444]Hata: Geçersiz dizin[/color]'];
+                }
+
+                const contents = Object.keys(dir.contents);
+                if (contents.length === 0) {
+                    return ['[color=#888888]Dizin boş[/color]'];
+                }
+
+                const output = [];
+                contents.forEach(item => {
+                    const itemData = dir.contents[item];
+                    if (itemData.type === 'directory') {
+                        output.push(`[color=#0088ff]📁 ${item}/[/color]`);
+                    } else if (item.includes('.html') || item.includes('.js')) {
+                        output.push(`[color=#00ff00]📄 ${item}[/color]`);
+                    } else if (item.includes('.md')) {
+                        output.push(`[color=#ffff00]📄 ${item}[/color]`);
+                    } else {
+                        output.push(`[color=#ffffff]📄 ${item}[/color]`);
+                    }
+                });
+                return output;
+            },
+
+            'cd': (args) => {
+                if (!args || args.length === 0) {
+                    currentDirectory = '/home/user';
+                    return [`[color=#00ff00]Ana dizine geçildi[/color]`];
+                }
+
+                const targetPath = resolvePath(args[0]);
+                const targetDir = fileSystem[targetPath];
+
+                if (!targetDir || targetDir.type !== 'directory') {
+                    return [`[color=#ff4444]Hata: Dizin bulunamadı: ${args[0]}[/color]`];
+                }
+
+                currentDirectory = targetPath;
+                return [`[color=#00ff00]Dizin değiştirildi: ${currentDirectory}[/color]`];
+            },
+
+            'pwd': () => [currentDirectory],
+
+            'cat': (args) => {
+                if (!args || args.length === 0) {
+                    return ['[color=#ff4444]Hata: Dosya adı gerekli[/color]'];
+                }
+
+                const filePath = resolvePath(args[0]);
+                const file = fileSystem[filePath];
+
+                if (!file || file.type !== 'file') {
+                    return [`[color=#ff4444]Hata: Dosya bulunamadı: ${args[0]}[/color]`];
+                }
+
+                return [
+                    `[color=#ffff00]📄 ${args[0]} içeriği:[/color]`,
+                    '',
+                    file.content
+                ];
+            },
+
+            'mkdir': (args) => {
+                if (!args || args.length === 0) {
+                    return ['[color=#ff4444]Hata: Dizin adı gerekli[/color]'];
+                }
+
+                const dir = getCurrentDirectory();
+                if (dir.contents[args[0]]) {
+                    return [`[color=#ff4444]Hata: ${args[0]} zaten mevcut[/color]`];
+                }
+
+                dir.contents[args[0]] = { type: 'directory', contents: {} };
+                return [`[color=#00ff00]Dizin oluşturuldu: ${args[0]}[/color]`];
+            },
+
+            'rm': (args) => {
+                if (!args || args.length === 0) {
+                    return ['[color=#ff4444]Hata: Dosya/dizin adı gerekli[/color]'];
+                }
+
+                const dir = getCurrentDirectory();
+                if (!dir.contents[args[0]]) {
+                    return [`[color=#ff4444]Hata: ${args[0]} bulunamadı[/color]`];
+                }
+
+                delete dir.contents[args[0]];
+                return [`[color=#00ff00]Silindi: ${args[0]}[/color]`];
+            },
+
+            'history': () => {
+                if (commandHistory.length === 0) {
+                    return ['[color=#888888]Komut geçmişi boş[/color]'];
+                }
+
+                const output = ['[color=#ffff00]Komut Geçmişi:[/color]', ''];
+                commandHistory.forEach((cmd, index) => {
+                    output.push(`${(index + 1).toString().padStart(3, ' ')}  ${cmd}`);
+                });
+                return output;
+            },
+
+            'date': () => {
+                const now = new Date();
+                return [`[color=#00ff00]${now.toLocaleString('tr-TR')}[/color]`];
+            },
+
+            'whoami': () => ['[color=#00ff00]terminal-user[/color]'],
+
+            'download': () => {
+                setTimeout(() => {
+                    createProgressBar(() => {
+                        addOutput('[color=#00ff00]İndirme tamamlandı! 🎉[/color]', 'success');
+                    });
+                }, 100);
+                return ['[color=#ffff00]Dosya indiriliyor...[/color]'];
+            },
+
+            'matrix': () => {
+                const matrixRain = document.getElementById('matrixRain');
+                if (matrixRain) {
+                    if (matrixRain.style.display === 'none') {
+                        matrixRain.style.display = 'block';
+                        return ['[color=#00ff00]Matrix efekti açıldı 🌧️[/color]'];
+                    } else {
+                        matrixRain.style.display = 'none';
+                        return ['[color=#00ff00]Matrix efekti kapatıldı 🌧️[/color]'];
+                    }
+                }
+                return ['[color=#ff4444]Matrix elementi bulunamadı[/color]'];
+            },
+
+
+
+            'calc': (args) => {
+                if (!args || args.length === 0) {
+                    return ['[color=#ffff00]Kullanım: calc [işlem][/color]', '[color=#00ff00]Örnek: calc 2 * (3 + 4)[/color]'];
+                }
+                try {
+                    const expression = args.join(' ');
+                    if (/[^0-9\+\-\*\/\(\)\.\s]/.test(expression)) {
+                        throw new Error('Geçersiz karakterler içeriyor.');
+                    }
+                    const result = new Function('return ' + expression)();
+                    return [`[color=#ffff00]${expression} = ${result}[/color]`];
+                } catch(e) {
+                    return ['[color=#ff4444]Hatalı veya geçersiz işlem[/color]'];
+                }
+            },
+
+            'weather': (args) => {
+                const city = args && args.length > 0 ? args.join(' ') : 'Istanbul';
+                return new Promise((resolve) => {
+                    fetch(`https://api.openweathermap.org/data/2.5/weather?q=${city}&appid=d4e0c9c4e0c9c4e0c9c4e0c9c4e0c9c4&units=metric&lang=tr`)
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.cod === 200) {
+                                const weatherIcon = data.weather[0].main.toLowerCase();
+                                const temp = Math.round(data.main.temp);
+                                const description = data.weather[0].description;
+                                const humidity = data.main.humidity;
+                                const windSpeed = Math.round(data.wind.speed * 3.6);
+
+                                let icon = '🌤️';
+                                if (weatherIcon.includes('rain')) icon = '🌧️';
+                                else if (weatherIcon.includes('cloud')) icon = '☁️';
+                                else if (weatherIcon.includes('clear')) icon = '☀️';
+                                else if (weatherIcon.includes('snow')) icon = '❄️';
+                                else if (weatherIcon.includes('storm')) icon = '⛈️';
+
+                                resolve([
+                                    `[color=#ffff00]🌍 ${data.name}, ${data.sys.country}[/color]`,
+                                    `[color=#00ff00]${icon} ${description}[/color]`,
+                                    `[color=#0088ff]🌡️ Sıcaklık: ${temp}°C[/color]`,
+                                    `[color=#ffff00]💧 Nem: ${humidity}%[/color]`,
+                                    `[color=#00ff00]💨 Rüzgar: ${windSpeed} km/s[/color]`
+                                ]);
+                            } else {
+                                resolve([`[color=#ff4444]Şehir bulunamadı: ${city}[/color]`, `[color=#ffff00]Kullanım: weather [şehir][/color]`]);
+                            }
+                        })
+                        .catch(error => {
+                            console.warn('Weather API error:', error);
+                            const weather = ['☀️ Güneşli', '🌧️ Yağmurlu', '⛅ Parçalı Bulutlu', '❄️ Karlı', '🌪️ Rüzgarlı'][Math.floor(Math.random() * 5)];
+                            const temp = Math.floor(Math.random() * 30) + 10;
+                            resolve([
+                                `[color=#ffff00]Hava Durumu: ${weather}[/color]`,
+                                `[color=#00ff00]Sıcaklık: ${temp}°C[/color]`,
+                                `[color=#888888](API kullanılamıyor, yerel veri gösteriliyor)[/color]`
+                            ]);
+                        });
+                });
+            },
+
+            'joke': () => {
+                return new Promise((resolve) => {
+                    fetch('https://official-joke-api.appspot.com/random_joke')
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.setup && data.punchline) {
+                                resolve([
+                                    `[color=#ffff00]${data.setup}[/color]`,
+                                    `[color=#00ff00]${data.punchline}[/color]`,
+                                    `[color=#888888]🤖 AI tarafından oluşturuldu[/color]`
+                                ]);
+                            } else {
+                                const localJokes = [
+                                    'Programcılar neden klavyeyi sever? Çünkü enter tuşu var! 😂',
+                                    'Bug niye böcek diye adlandırılır? Çünkü programda bulunması zor! 🐛',
+                                    'JavaScript\'in favori giysisi nedir? JavaScript! 😄',
+                                    'Programcıların favori kahvesi? Java! ☕',
+                                    'Algoritma ne zaman evlenir? Doğru kişiyi bulunca! 💍'
+                                ];
+                                const joke = localJokes[Math.floor(Math.random() * localJokes.length)];
+                                resolve([`[color=#ffff00]${joke}[/color]`, `[color=#888888](Yerel şaka, API kullanılamıyor)[/color]`]);
+                            }
+                        })
+                        .catch(error => {
+                            console.warn('Joke API error:', error);
+                            const localJokes = [
+                                'Programcılar neden klavyeyi sever? Çünkü enter tuşu var! 😂',
+                                'Bug niye böcek diye adlandırılır? Çünkü programda bulunması zor! 🐛',
+                                'JavaScript\'in favori giysisi nedir? JavaScript! 😄',
+                                'Programcıların favori kahvesi? Java! ☕',
+                                'Algoritma ne zaman evlenir? Doğru kişiyi bulunca! 💍'
+                            ];
+                            const joke = localJokes[Math.floor(Math.random() * localJokes.length)];
+                            resolve([`[color=#ffff00]${joke}[/color]`, `[color=#888888](Yerel şaka)[/color]`]);
+                        });
+                });
+            },
+
+            'fortune': () => {
+                return new Promise((resolve) => {
+                    fetch('https://api.quotable.io/random')
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.content && data.author) {
+                                resolve([
+                                    `[color=#ffff00]"${data.content}"[/color]`,
+                                    `[color=#0088ff]— ${data.author}[/color]`,
+                                    `[color=#888888]📚 İlham verici söz[/color]`
+                                ]);
+                            } else {
+                                const localFortunes = [
+                                    '🎯 Büyük bir başarı yakında sizi bekliyor!',
+                                    '💡 Yaratıcılığınız bugün zirvede olacak!',
+                                    '🌟 Önemli bir fırsat yaklaşıyor!',
+                                    '🔥 Enerjiniz yüksek, her şey yolunda gidecek!',
+                                    '⭐ Şansınız bugün yanınızda!',
+                                    '🚀 Yeni başlangıçlar için mükemmel zaman!',
+                                    '🎨 Kod yazarken müziğinizi açın, ilham gelecektir!',
+                                    '⚡ Bug yakalama yetenekleriniz bugün çok keskin!',
+                                    '🌈 Her debug session\'ından ders çıkarın!',
+                                    '💻 En karmaşık problemler en güzel çözümlerdir!'
+                                ];
+                                const fortune = localFortunes[Math.floor(Math.random() * localFortunes.length)];
+                                resolve([`[color=#ffff00]${fortune}[/color]`, `[color=#888888](Yerel şans mesajı)[/color]`]);
+                            }
+                        })
+                        .catch(error => {
+                            console.warn('Fortune API error:', error);
+                            const localFortunes = [
+                                '🎯 Büyük bir başarı yakında sizi bekliyor!',
+                                '💡 Yaratıcılığınız bugün zirvede olacak!',
+                                '🌟 Önemli bir fırsat yaklaşıyor!',
+                                '🔥 Enerjiniz yüksek, her şey yolunda gidecek!',
+                                '⭐ Şansınız bugün yanınızda!',
+                                '🚀 Yeni başlangıçlar için mükemmel zaman!',
+                                '🎨 Kod yazarken müziğinizi açın, ilham gelecektir!',
+                                '⚡ Bug yakalama yetenekleriniz bugün çok keskin!',
+                                '🌈 Her debug session\'ından ders çıkarın!',
+                                '💻 En karmaşık problemler en güzel çözümlerdir!'
+                            ];
+                            const fortune = localFortunes[Math.floor(Math.random() * localFortunes.length)];
+                            resolve([`[color=#ffff00]${fortune}[/color]`, `[color=#888888](Yerel şans mesajı)[/color]`]);
+                        });
+                });
+            },
+
+            'theme': (args) => {
+                if (!args || args.length === 0) {
+                    return ['[color=#ffff00]Mevcut tema: Matrix[/color]', '[color=#00ff00]Kullanım: theme [renk][/color]', '[color=#ffffff]Mevcut temalar: red, blue, green, purple/mor, cyberpunk, default/matrix[/color]'];
+                }
+                const root = document.documentElement;
+                const color = args[0].toLowerCase();
+
+                root.style.setProperty('--primary-color', '#00ff00');
+                root.style.setProperty('--background-color', '#000');
+                root.style.setProperty('--border-color', '#00ff00');
+                root.style.setProperty('--info-color', '#ffff00');
+                root.style.setProperty('--error-color', '#ff4444');
+                root.style.setProperty('--success-color', '#00ff00');
+                root.style.setProperty('--link-color', '#0088ff');
+                root.style.setProperty('--sound-toggle-bg', '#000');
+                root.style.setProperty('--sound-toggle-border', '#00ff00');
+                root.style.setProperty('--sound-toggle-color', '#00ff00');
+                root.style.setProperty('--sound-toggle-hover', '#00ff00');
+                root.style.setProperty('--matrix-color', '#00ff00');
+
+                if (color === 'red') {
+                    root.style.setProperty('--primary-color', '#ff0000');
+                    root.style.setProperty('--border-color', '#ff0000');
+                    root.style.setProperty('--sound-toggle-border', '#ff0000');
+                    root.style.setProperty('--sound-toggle-color', '#ff0000');
+                    root.style.setProperty('--sound-toggle-hover', '#ff0000');
+                    root.style.setProperty('--matrix-color', '#ff0000');
+                    return ['[color=#ff0000]Kırmızı tema aktif![/color]'];
+                } else if (color === 'blue') {
+                    root.style.setProperty('--primary-color', '#0088ff');
+                    root.style.setProperty('--border-color', '#0088ff');
+                    root.style.setProperty('--sound-toggle-border', '#0088ff');
+                    root.style.setProperty('--sound-toggle-color', '#0088ff');
+                    root.style.setProperty('--sound-toggle-hover', '#0088ff');
+                    root.style.setProperty('--matrix-color', '#0088ff');
+                    return ['[color=#0088ff]Mavi tema aktif![/color]'];
+                } else if (color === 'green') {
+                    return ['[color=#00ff00]Yeşil tema aktif![/color]'];
+                } else if (color === 'purple' || color === 'mor') {
+                    root.style.setProperty('--primary-color', '#8000ff');
+                    root.style.setProperty('--border-color', '#8000ff');
+                    root.style.setProperty('--sound-toggle-border', '#8000ff');
+                    root.style.setProperty('--sound-toggle-color', '#8000ff');
+                    root.style.setProperty('--sound-toggle-hover', '#8000ff');
+                    root.style.setProperty('--matrix-color', '#8000ff');
+                    return ['[color=#8000ff]Mor tema aktif![/color]'];
+                } else if (color === 'cyberpunk') {
+                    root.style.setProperty('--primary-color', '#00ffff');
+                    root.style.setProperty('--background-color', '#0d1117');
+                    root.style.setProperty('--border-color', '#ff00ff');
+                    root.style.setProperty('--sound-toggle-bg', '#0d1117');
+                    root.style.setProperty('--sound-toggle-border', '#ff00ff');
+                    root.style.setProperty('--sound-toggle-color', '#00ffff');
+                    root.style.setProperty('--sound-toggle-hover', '#ff00ff');
+                    root.style.setProperty('--matrix-color', '#00ffff');
+                    return ['[color=#00ffff]Cyberpunk tema aktif! 🎭[/color]'];
+                } else if (color === 'default' || color === 'matrix') {
+                    return ['[color=#00ff00]Matrix teması aktif![/color]'];
+                }
+                return ['[color=#ff4444]Bilinmeyen tema: ' + color + '[/color]'];
+            },
+
+            'neofetch': () => {
+                const ascii = [
+                    '[color=#00ff00]╔══════════════════════════════════════════════════════════════════╗[/color]',
+                    '[color=#00ff00]║                                                                  ║[/color]',
+                    '[color=#00ff00]║                    ███╗   ██╗███████╗ ██████╗ ███████╗           ║[/color]',
+                    '[color=#00ff00]║                    ████╗  ██║██╔════╝██╔═══██╗██╔════╝           ║[/color]',
+                    '[color=#00ff00]║                    ██╔██╗ ██║█████╗  ██║   ██║█████╗             ║[/color]',
+                    '[color=#00ff00]║                    ██║╚██╗██║██╔══╝  ██║   ██║██╔══╝             ║[/color]',
+                    '[color=#00ff00]║                    ██║ ╚████║███████╗╚██████╔╝███████╗           ║[/color]',
+                    '[color=#00ff00]║                    ╚═╝  ╚═══╝╚══════╝ ╚═════╝ ╚══════╝           ║[/color]',
+                    '[color=#00ff00]║                                                                  ║[/color]',
+                    '[color=#00ff00]╚══════════════════════════════════════════════════════════════════╝[/color]',
+                    ''
+                ];
+
+                const info = [
+                    '[color=#ffffff]TerminalOS[/color]@[color=#00ff00]terminal-user[/color]',
+                    '[color=#ffffff]─────────────────────────[/color]',
+                    '[color=#0088ff]OS:[/color] TerminalOS v1.0 (Linux-like)',
+                    '[color=#0088ff]Host:[/color] Terminal Portfolio v2.0',
+                    '[color=#0088ff]Kernel:[/color] TerminalOS Kernel 1.0.0',
+                    '[color=#0088ff]Uptime:[/color] ' + Math.floor(Math.random() * 24) + ' hours, ' + Math.floor(Math.random() * 60) + ' mins',
+                    '[color=#0088ff]Packages:[/color] ' + (Math.floor(Math.random() * 100) + 50) + ' (terminal)',
+                    '[color=#0088ff]Shell:[/color] TerminalShell v1.0',
+                    '[color=#0088ff]Resolution:[/color] ' + window.screen.width + 'x' + window.screen.height,
+                    '[color=#0088ff]DE:[/color] Terminal Desktop Environment',
+                    '[color=#0088ff]WM:[/color] Terminal Window Manager',
+                    '[color=#0088ff]Theme:[/color] Matrix Terminal [GTK2/3]',
+                    '[color=#0088ff]Icons:[/color] Terminal Icons [GTK2/3]',
+                    '[color=#0088ff]Terminal:[/color] Terminal v1.0',
+                    '[color=#0088ff]CPU:[/color] Terminal CPU (4) @ 3.6GHz',
+                    '[color=#0088ff]GPU:[/color] Terminal GPU',
+                    '[color=#0088ff]Memory:[/color] ' + (Math.floor(Math.random() * 8) + 4) + 'GB / ' + (Math.floor(Math.random() * 4) + 8) + 'GB',
+                    ''
+                ];
+
+                return ascii.concat(info);
+            }
+        };
+
+        function createProgressBar(callback) {
+            const progressContainer = document.createElement('div');
+            progressContainer.className = 'line';
+            progressContainer.innerHTML = `
+                <div>İndiriliyor... <span id="progress-text">0%</span></div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill"></div>
+                </div>
+            `;
+            output.appendChild(progressContainer);
+
+            const progressFill = document.getElementById('progress-fill');
+            const progressText = document.getElementById('progress-text');
+            let progress = 0;
+
+            const interval = setInterval(() => {
+                progress += Math.random() * 15;
+                if (progress > 100) progress = 100;
+
+                progressFill.style.width = progress + '%';
+                progressText.textContent = Math.round(progress) + '%';
+
+                if (progress >= 100) {
+                    clearInterval(interval);
+                    setTimeout(() => {
+                        if (callback) callback();
+                    }, 500);
+                }
+            }, 100);
+        }
+
+        async function processCommand(command) {
+            if (isTyping) return;
+
+            const trimmedCommand = command.trim();
+            if (!trimmedCommand) return;
+
+            commandHistory.push(trimmedCommand);
+            if (commandHistory.length > 100) commandHistory.shift();
+            historyIndex = commandHistory.length;
+
+            addOutput(`user@terminal:~$ ${command}`, 'prompt-line');
+
+            const parts = trimmedCommand.split(' ');
+            const cmd = parts[0].toLowerCase();
+            const args = parts.slice(1);
+
+            if (commands[cmd]) {
+                try {
+                    const result = await commands[cmd](args);
+                    if (result && result.length > 0) {
+                        let lineIndex = 0;
+                        const typeNextLine = () => {
+                            if (lineIndex < result.length) {
+                                setTimeout(() => {
+                                    typeText(result[lineIndex], typeNextLine, 15, 'command-output');
+                                    lineIndex++;
+                                }, lineIndex === 0 ? 50 : 100);
+                            } else {
+                                setTimeout(() => {
+                                    addOutput('', 'prompt-line');
+                                }, 150);
+                            }
+                        };
+                        typeNextLine();
+                    } else {
+                        setTimeout(() => {
+                            addOutput('', 'prompt-line');
+                        }, 100);
+                    }
+                } catch (error) {
+                    console.warn('Command execution error:', error);
+                    setTimeout(() => {
+                        addOutput(`[color=#ff4444]Hata: Komut çalıştırılırken sorun oluştu: ${cmd}[/color]`, 'error');
+                        playSound('error');
+                        setTimeout(() => {
+                            addOutput('', 'prompt-line');
+                        }, 500);
+                    }, 100);
+                }
+            } else {
+                setTimeout(() => {
+                    addOutput(`[color=#ff4444]Hata: Komut bulunamadı: ${cmd}[/color]`, 'error');
+                    playSound('error');
+                    setTimeout(() => {
+                        addOutput(`[color=#888888]'help' yazarak kullanılabilir komutları görebilirsiniz.[/color]`, 'info');
+                        setTimeout(() => {
+                            addOutput('', 'prompt-line');
+                        }, 500);
+                    }, 500);
+                }, 100);
+            }
+        }
+
+        commandInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !isTyping) {
+                const command = commandInput.value;
+                if (command.trim()) {
+                    processCommand(command);
+                    commandInput.value = '';
+                    playSound('enter');
+                }
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (historyIndex > 0) {
+                    historyIndex--;
+                    commandInput.value = commandHistory[historyIndex];
+                }
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                if (historyIndex < commandHistory.length - 1) {
+                    historyIndex++;
+                    commandInput.value = commandHistory[historyIndex];
+                } else {
+                    historyIndex = commandHistory.length;
+                    commandInput.value = '';
+                }
+            } else if (e.key === 'Tab') {
+                e.preventDefault();
+                const partial = commandInput.value.toLowerCase();
+                const matches = Object.keys(commands).filter(cmd => cmd.startsWith(partial));
+                if (matches.length === 1) {
+                    commandInput.value = matches[0];
+                } else if (matches.length > 1) {
+                    addOutput(`user@terminal:~$ ${commandInput.value}`, 'prompt-line');
+                    addOutput(matches.join('  '), 'info');
+                    addOutput('', 'prompt-line');
+                }
+            }
+        });
+
+        soundToggle.addEventListener('click', () => {
+            soundEnabled = !soundEnabled;
+            soundToggle.textContent = soundEnabled ? '🔊 SES' : '🔇 SESSİZ';
+            soundToggle.style.color = soundEnabled ? '#00ff00' : '#ff4444';
+        });
+
+        document.addEventListener('click', () => {
+            commandInput.focus();
+        });
+
+        window.addEventListener('load', () => {
+            commandInput.focus();
+            initMatrixRain();
+
+            setTimeout(() => {
+                const firstLine = document.querySelector('.typing-animation');
+                if (firstLine) {
+                    firstLine.classList.remove('typing-animation');
+                }
+                addOutput('[color=#00ff00]Sistem başlatıldı. Komut yazabilirsiniz.[/color]', 'success');
+                setTimeout(() => {
+                    addOutput('', 'prompt-line');
+                }, 500);
+            }, 3000);
+        });
+
+        window.addEventListener('resize', () => {
+            const matrixRain = document.getElementById('matrixRain');
+            matrixRain.innerHTML = '';
+            matrixColumns = [];
+            initMatrixRain();
+        });
+
+        commandInput.addEventListener('input', () => {
+            if (commandInput.value && !isTyping) {
+                playSound('keypress');
+            }
+        });
+
+        function startBootSequence() {
+            const bootMessages = [
+                '[color=#ffff00]TERMINAL PORTFOLIO v1.0[/color]',
+                '[color=#00ff00]İşletim sistemi: TerminalOS[/color]',
+                '[color=#00ff00]Kullanıcı: terminal-user[/color]',
+                '[color=#0088ff]Grafik arayüzü: Matrix Terminal[/color]',
+                '[color=#00ff00]Bellek: 1337 MB kullanılabilir[/color]',
+                '[color=#ffff00]Sistem hazır...[/color]',
+                '',
+                '[color=#00ff00]╔══════════════════════════════════════════════════════════════════╗[/color]',
+                '[color=#00ff00]║              Hoş geldiniz! "help" yazarak başlayın             ║[/color]',
+                '[color=#00ff00]╚══════════════════════════════════════════════════════════════════╝[/color]'
+            ];
+
+            let messageIndex = 0;
+            const showNextMessage = () => {
+                if (messageIndex < bootMessages.length) {
+                    setTimeout(() => {
+                        addOutput(bootMessages[messageIndex], 'command-output');
+                        messageIndex++;
+                        showNextMessage();
+                    }, messageIndex === 0 ? 500 : 200);
+                } else {
+                    setTimeout(() => {
+                        addOutput('', 'prompt-line');
+                    }, 1000);
+                }
+            };
+
+            showNextMessage();
+        }
+
+        setTimeout(() => {
+            startBootSequence();
+        }, 4000);
+    </script>
+</body>
+</html>
